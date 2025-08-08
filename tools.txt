@@ -1,0 +1,3 @@
+python -c "import base64; open('icon.txt','w').write(base64.b64encode(open('icon.png','rb').read()).decode())"
+
+pyinstaller Pwd_MacGiver.py --name Pwd_MacGiver --onefile --noconsole --icon .\app.ico

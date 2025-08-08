@@ -1,0 +1,5 @@
+vault*.db
+venv
+dist
+build
+.vscode
