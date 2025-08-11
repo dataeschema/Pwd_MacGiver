@@ -26,9 +26,8 @@ from PySide6.QtCore import Qt
 # Embedded App Icon (PNG)
 # ==========================
 # A simple shield/lock-like 256x256 PNG encoded in base64 (placeholder minimalist icon)
-_APP_ICON_B64 = (
-    b"asdfasdfa"
-)
+with open("icon.txt", "rb") as f:
+    _APP_ICON_B64 = f.read().strip()
 
 # NOTE: Replace the above string with a real base64 of your icon if desired.
 
