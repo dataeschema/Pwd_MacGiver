@@ -20,16 +20,13 @@ import typing as t
 from dataclasses import dataclass
 
 from PySide6 import QtCore, QtGui, QtWidgets
-from PySide6.QtCore import Qt 
+from PySide6.QtCore import Qt
 
 # ==========================
-# Embedded App Icon (PNG)
+#  App Assets
 # ==========================
-# A simple shield/lock-like 256x256 PNG encoded in base64 (placeholder minimalist icon)
-with open("icon.txt", "rb") as f:
-    _APP_ICON_B64 = f.read().strip()
-
-# NOTE: Replace the above string with a real base64 of your icon if desired.
+# The application icon is loaded from icon.png within the MainWindow class.
+# It is bundled into the executable using PyInstaller's --add-data flag.
 
 DB_FILENAME = "vault.db"
 
@@ -404,16 +401,23 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _set_icon(self):
         try:
-            if _APP_ICON_B64 and not _APP_ICON_B64.startswith(b"..."):
-                data = base64.b64decode(_APP_ICON_B64)
-                pix = QtGui.QPixmap()
-                pix.loadFromData(data, "PNG")
-                icon = QtGui.QIcon(pix)
+            if getattr(sys, 'frozen', False):
+                # Path for PyInstaller bundle
+                base_path = sys._MEIPASS
+            else:
+                # Path for running from source
+                base_path = os.path.abspath(os.path.dirname(__file__))
+            
+            icon_path = os.path.join(base_path, "icon.png")
+
+            if os.path.exists(icon_path):
+                self.setWindowIcon(QtGui.QIcon(icon_path))
             else:
                 icon = self.style().standardIcon(QtWidgets.QStyle.SP_FileDialogInfoView)
-            self.setWindowIcon(icon)
+                self.setWindowIcon(icon)
         except Exception:
-            pass
+            icon = self.style().standardIcon(QtWidgets.QStyle.SP_FileDialogInfoView)
+            self.setWindowIcon(icon)
 
     def _build_ui(self):
         central = QtWidgets.QWidget()
