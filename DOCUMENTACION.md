@@ -22,7 +22,9 @@ La aplicación está protegida por una **contraseña maestra**, que se utiliza p
   - **Buscador integrado:** Filtra los servicios en tiempo real.
   - **Copiado al portapapeles:** Haciendo doble clic en cualquier celda, su contenido se copia al portapapeles.
   - **Notificaciones visuales:** Un banner temporal confirma que un dato ha sido copiado.
-- **Configuración Personalizable:** Permite ajustar y guardar el tamaño inicial de la ventana.
+- **Configuración Personalizable:**
+  - Permite ajustar y guardar el tamaño inicial de la ventana.
+  - El ancho de las columnas de la tabla también se guarda y se restaura en cada sesión.
 
 ## 3. Tecnologías Utilizadas
 

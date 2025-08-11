@@ -394,6 +394,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self.db = db
         self.crypto = crypto
         self.setWindowTitle("Pwd MacGiver")
+
+        # Timer for debouncing column width saves
+        self.column_resize_timer = QtCore.QTimer(self)
+        self.column_resize_timer.setSingleShot(True)
+        self.column_resize_timer.timeout.connect(self._save_column_widths)
+
         self._set_icon()
         self._build_ui()
         self._refresh_table()
@@ -448,11 +454,12 @@ class MainWindow(QtWidgets.QMainWindow):
         # Table
         self.table = QtWidgets.QTableWidget(0, 5)
         self.table.setHorizontalHeaderLabels(["Servicio", "Usuario", "Contraseña", "Servidor", "BBDD"])
-        self.table.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.Interactive)
         self.table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
         self.table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
         self.table.setAlternatingRowColors(True)
         self.table.doubleClicked.connect(self._copy_cell)
+        self.table.horizontalHeader().sectionResized.connect(self._on_column_resized)
         self.table.setStyleSheet("""
             QTableView {
                 font-size: 10pt;
@@ -501,6 +508,28 @@ class MainWindow(QtWidgets.QMainWindow):
             w, h = 1000, 600
         self.resize(w, h)
 
+    def _apply_column_widths(self):
+        widths_str = self.db.get_config("table_col_widths")
+        if widths_str:
+            try:
+                widths = [int(w) for w in widths_str.split(",")]
+                if len(widths) == self.table.columnCount():
+                    for i, width in enumerate(widths):
+                        self.table.setColumnWidth(i, width)
+                else:
+                    self.table.horizontalHeader().setStretchLastSection(True)
+            except (ValueError, IndexError):
+                self.table.horizontalHeader().setStretchLastSection(True)
+        else:
+            self.table.horizontalHeader().setStretchLastSection(True)
+
+    def _on_column_resized(self, logicalIndex: int, oldSize: int, newSize: int):
+        self.column_resize_timer.start(500)
+
+    def _save_column_widths(self):
+        widths = [str(self.table.columnWidth(i)) for i in range(self.table.columnCount())]
+        self.db.set_config("table_col_widths", ",".join(widths))
+
     # ------- Data loading & filtering -------
     def _refresh_table(self):
         self._services_cache = self.db.list_services()
@@ -532,6 +561,7 @@ class MainWindow(QtWidgets.QMainWindow):
             # Keep service id in row for edit/delete
             self.table.item(row, 0).setData(Qt.UserRole + 1, svc.id)
         self.count_label.setText(f"{self.table.rowCount()} servicios")
+        self._apply_column_widths()
 
     def _safe_decrypt(self, blob: bytes | None) -> str | None:
         if blob is None:
