@@ -6,5 +6,6 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "cryptography>=45.0.6",
+    "pyinstaller>=6.15.0",
     "pyside6>=6.9.1",
 ]
