@@ -86,13 +86,22 @@ CREATE TABLE IF NOT EXISTS config (
     value TEXT
 );
 
+CREATE TABLE IF NOT EXISTS entornos (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    nombre TEXT NOT NULL UNIQUE,
+    color TEXT,
+    orden INTEGER DEFAULT 0
+);
+
 CREATE TABLE IF NOT EXISTS services (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     service_name TEXT NOT NULL,
     username BLOB,
     password BLOB,
     server BLOB,
-    database BLOB
+    database BLOB,
+    entorno_id INTEGER,
+    FOREIGN KEY (entorno_id) REFERENCES entornos (id) ON DELETE SET NULL
 );
 """
 
@@ -140,6 +149,13 @@ class Database:
 
     # --- service CRUD ---
     @dataclass
+    class Entorno:
+        id: int | None
+        nombre: str
+        color: str | None
+        orden: int
+
+    @dataclass
     class Service:
         id: int | None
         service_name: str
@@ -147,10 +163,50 @@ class Database:
         password: bytes | None
         server: bytes | None
         database: bytes | None
+        entorno_id: int | None
+        entorno_color: str | None
+
+    def list_entornos(self) -> list[Entorno]:
+        cur = self.conn.execute("SELECT id, nombre, color, orden FROM entornos ORDER BY orden, nombre")
+        return [
+            Database.Entorno(
+                id=row["id"],
+                nombre=row["nombre"],
+                color=row["color"],
+                orden=row["orden"],
+            )
+            for row in cur.fetchall()
+        ]
+
+    def insert_entorno(self, nombre: str, color: str, orden: int) -> int:
+        cur = self.conn.execute(
+            "INSERT INTO entornos (nombre, color, orden) VALUES (?, ?, ?)", (nombre, color, orden)
+        )
+        self.conn.commit()
+        return cur.lastrowid
+
+    def update_entorno(self, id: int, nombre: str, color: str, orden: int) -> None:
+        self.conn.execute(
+            "UPDATE entornos SET nombre=?, color=?, orden=? WHERE id=?", (nombre, color, orden, id)
+        )
+        self.conn.commit()
+
+    def delete_entorno(self, id: int) -> None:
+        self.conn.execute("DELETE FROM entornos WHERE id=?", (id,))
+        self.conn.commit()
+
+    def is_entorno_in_use(self, id: int) -> bool:
+        cur = self.conn.execute("SELECT 1 FROM services WHERE entorno_id=?", (id,))
+        return cur.fetchone() is not None
 
     def list_services(self) -> list[Service]:
         cur = self.conn.execute(
-            "SELECT id, service_name, username, password, server, database FROM services ORDER BY service_name"
+            """
+            SELECT s.id, s.service_name, s.username, s.password, s.server, s.database, s.entorno_id, e.color as entorno_color
+              FROM services s
+              LEFT JOIN entornos e ON s.entorno_id = e.id
+             ORDER BY e.orden, s.service_name
+            """
         )
         return [
             Database.Service(
@@ -160,6 +216,8 @@ class Database:
                 password=row["password"],
                 server=row["server"],
                 database=row["database"],
+                entorno_id=row["entorno_id"],
+                entorno_color=row["entorno_color"],
             )
             for row in cur.fetchall()
         ]
@@ -167,10 +225,17 @@ class Database:
     def insert_service(self, svc: Service) -> int:
         cur = self.conn.execute(
             """
-            INSERT INTO services(service_name, username, password, server, database)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO services(service_name, username, password, server, database, entorno_id)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
-            (svc.service_name, svc.username, svc.password, svc.server, svc.database),
+            (
+                svc.service_name,
+                svc.username,
+                svc.password,
+                svc.server,
+                svc.database,
+                svc.entorno_id,
+            ),
         )
         self.conn.commit()
         return cur.lastrowid
@@ -180,10 +245,18 @@ class Database:
         self.conn.execute(
             """
             UPDATE services
-               SET service_name=?, username=?, password=?, server=?, database=?
+               SET service_name=?, username=?, password=?, server=?, database=?, entorno_id=?
              WHERE id=?
             """,
-            (svc.service_name, svc.username, svc.password, svc.server, svc.database, svc.id),
+            (
+                svc.service_name,
+                svc.username,
+                svc.password,
+                svc.server,
+                svc.database,
+                svc.entorno_id,
+                svc.id,
+            ),
         )
         self.conn.commit()
 
@@ -288,7 +361,7 @@ class LoginDialog(QtWidgets.QDialog):
 
 
 class ServiceDialog(QtWidgets.QDialog):
-    def __init__(self, parent=None, *, title: str, service_name: str = "", username: str = "", password: str = "", server: str = "", database: str = ""):
+    def __init__(self, parent=None, *, title: str, service_name: str = "", username: str = "", password: str = "", server: str = "", database: str = "", entorno_id: int | None = None, entornos: list[Database.Entorno]):
         super().__init__(parent)
         self.setWindowTitle(title)
         self.setModal(True)
@@ -299,6 +372,14 @@ class ServiceDialog(QtWidgets.QDialog):
         self.pass_edit.setEchoMode(QtWidgets.QLineEdit.Password)
         self.server_edit = QtWidgets.QLineEdit(server)
         self.db_edit = QtWidgets.QLineEdit(database)
+
+        self.entorno_combo = QtWidgets.QComboBox()
+        self.entorno_combo.addItem("", None)  # No environment
+        for entorno in entornos:
+            self.entorno_combo.addItem(entorno.nombre, entorno.id)
+            if entorno.id == entorno_id:
+                self.entorno_combo.setCurrentText(entorno.nombre)
+
         self._build_ui()
 
     def _build_ui(self):
@@ -308,6 +389,7 @@ class ServiceDialog(QtWidgets.QDialog):
         form.addRow("Contraseña:", self.pass_edit)
         form.addRow("Servidor:", self.server_edit)
         form.addRow("BBDD:", self.db_edit)
+        form.addRow("Entorno:", self.entorno_combo)
 
         btns = QtWidgets.QDialogButtonBox(
             QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel
@@ -322,7 +404,9 @@ class ServiceDialog(QtWidgets.QDialog):
         self.setStyleSheet(
             """
             QDialog { background:#0f172a; color:#e2e8f0; }
-            QLineEdit { background:#111827; border:1px solid #334155; border-radius:8px; padding:8px; }
+            QLineEdit, QComboBox { background:#111827; border:1px solid #334155; border-radius:8px; padding:8px; }
+            QComboBox::drop-down { border: none; }
+            QComboBox QAbstractItemView { background-color: #111827; border: 1px solid #334155; color: #e2e8f0; }
             QFormLayout > QLabel { color:#e5e7eb; }
             QPushButton { background:#1f2937; border:1px solid #334155; border-radius:8px; padding:8px 14px; }
             QPushButton:hover { background:#374151; }
@@ -330,13 +414,14 @@ class ServiceDialog(QtWidgets.QDialog):
             """
         )
 
-    def get_values(self) -> tuple[str, str, str, str, str]:
+    def get_values(self) -> tuple[str, str, str, str, str, int | None]:
         return (
             self.name_edit.text().strip(),
             self.user_edit.text().strip(),
             self.pass_edit.text(),
             self.server_edit.text().strip(),
             self.db_edit.text().strip(),
+            self.entorno_combo.currentData(),
         )
 
 
@@ -382,6 +467,170 @@ class SettingsDialog(QtWidgets.QDialog):
         self.db.set_config("win_width", str(self.width_spin.value()))
         self.db.set_config("win_height", str(self.height_spin.value()))
         self.accept()
+
+
+class EntornoEditDialog(QtWidgets.QDialog):
+    def __init__(self, parent=None, *, nombre: str = "", color: str = "#FFFFFF", orden: int = 0):
+        super().__init__(parent)
+        self.setWindowTitle("Editar Entorno")
+        self.setModal(True)
+
+        self.nombre_edit = QtWidgets.QLineEdit(nombre)
+        self.orden_spin = QtWidgets.QSpinBox()
+        self.orden_spin.setRange(0, 999)
+        self.orden_spin.setValue(orden)
+
+        self.color_button = QtWidgets.QPushButton()
+        self.color_dialog = QtWidgets.QColorDialog(self)
+        self._set_color(color)
+        self.color_button.clicked.connect(self._pick_color)
+
+        self._build_ui()
+
+    def _build_ui(self):
+        form = QtWidgets.QFormLayout()
+        form.addRow("Nombre:", self.nombre_edit)
+        form.addRow("Color:", self.color_button)
+        form.addRow("Orden:", self.orden_spin)
+
+        btns = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel)
+        btns.accepted.connect(self.accept)
+        btns.rejected.connect(self.reject)
+
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.addLayout(form)
+        layout.addWidget(btns)
+        self.setStyleSheet(
+            """
+            QDialog { background:#0f172a; color:#e2e8f0; }
+            QLineEdit { background:#111827; border:1px solid #334155; border-radius:8px; padding:8px; }
+            QSpinBox { background:#111827; border:1px solid #334155; border-radius:8px; padding:6px; }
+            QPushButton { background:#1f2937; border:1px solid #334155; border-radius:8px; padding:8px 14px; }
+            QPushButton:hover { background:#374151; }
+            QPushButton:pressed { background:#111827; }
+            """
+        )
+
+    def _pick_color(self):
+        if self.color_dialog.exec():
+            self._set_color(self.color_dialog.selectedColor().name())
+
+    def _set_color(self, color_hex: str):
+        self.color = QtGui.QColor(color_hex)
+        self.color_button.setStyleSheet(f"background-color: {color_hex}; color: black; padding: 5px; border-radius: 5px;")
+        self.color_button.setText(color_hex)
+
+    def get_values(self) -> tuple[str, str, int]:
+        return self.nombre_edit.text().strip(), self.color.name(), self.orden_spin.value()
+
+
+class EntornosDialog(QtWidgets.QDialog):
+    def __init__(self, db: Database, parent=None):
+        super().__init__(parent)
+        self.db = db
+        self.setWindowTitle("Gestionar Entornos")
+        self.setMinimumSize(500, 400)
+        self.setModal(True)
+        self._build_ui()
+        self._refresh_table()
+
+    def _build_ui(self):
+        layout = QtWidgets.QVBoxLayout(self)
+        self.table = QtWidgets.QTableWidget(0, 3)
+        self.table.setHorizontalHeaderLabels(["Nombre", "Color", "Orden"])
+        self.table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
+        self.table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
+        self.table.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.Stretch)
+
+        btn_layout = QtWidgets.QHBoxLayout()
+        btn_add = QtWidgets.QPushButton("Añadir")
+        btn_edit = QtWidgets.QPushButton("Modificar")
+        btn_del = QtWidgets.QPushButton("Eliminar")
+        btn_add.clicked.connect(self._add_entorno)
+        btn_edit.clicked.connect(self._edit_entorno)
+        btn_del.clicked.connect(self._del_entorno)
+
+        btn_layout.addWidget(btn_add)
+        btn_layout.addWidget(btn_edit)
+        btn_layout.addWidget(btn_del)
+
+        layout.addWidget(self.table)
+        layout.addLayout(btn_layout)
+        self.setStyleSheet(
+            """
+            QDialog { background:#0f172a; color:#e2e8f0; }
+            QTableView { background:#0f172a; alternate-background-color:#0c1222; gridline-color:#1f2937; }
+            QHeaderView::section { background:#111827; color:#e5e7eb; border:0; padding:6px; }
+            QPushButton { background:#1f2937; border:1px solid #334155; border-radius:8px; padding:8px 14px; }
+            QPushButton:hover { background:#374151; }
+            QPushButton:pressed { background:#111827; }
+            """
+        )
+
+    def _refresh_table(self):
+        self.table.setRowCount(0)
+        self._entornos_cache = self.db.list_entornos()
+        for entorno in self._entornos_cache:
+            row = self.table.rowCount()
+            self.table.insertRow(row)
+            self.table.setItem(row, 0, QtWidgets.QTableWidgetItem(entorno.nombre))
+            color_item = QtWidgets.QTableWidgetItem(entorno.color)
+            if entorno.color:
+                color_item.setBackground(QtGui.QColor(entorno.color))
+            self.table.setItem(row, 1, color_item)
+            self.table.setItem(row, 2, QtWidgets.QTableWidgetItem(str(entorno.orden)))
+            self.table.item(row, 0).setData(Qt.UserRole, entorno.id)
+
+    def _add_entorno(self):
+        dlg = EntornoEditDialog(self)
+        if dlg.exec() == QtWidgets.QDialog.Accepted:
+            nombre, color, orden = dlg.get_values()
+            if not nombre:
+                QtWidgets.QMessageBox.warning(self, "Aviso", "El nombre del entorno es obligatorio.")
+                return
+            try:
+                self.db.insert_entorno(nombre, color, orden)
+                self._refresh_table()
+            except sqlite3.IntegrityError:
+                QtWidgets.QMessageBox.warning(self, "Error", "Ya existe un entorno con ese nombre.")
+
+    def _edit_entorno(self):
+        sel = self.table.selectedItems()
+        if not sel:
+            QtWidgets.QMessageBox.information(self, "Editar", "Selecciona un entorno de la lista.")
+            return
+
+        entorno_id = sel[0].data(Qt.UserRole)
+        entorno = next((e for e in self._entornos_cache if e.id == entorno_id), None)
+        if not entorno:
+            return
+
+        dlg = EntornoEditDialog(self, nombre=entorno.nombre, color=entorno.color, orden=entorno.orden)
+        if dlg.exec() == QtWidgets.QDialog.Accepted:
+            nombre, color, orden = dlg.get_values()
+            if not nombre:
+                QtWidgets.QMessageBox.warning(self, "Aviso", "El nombre del entorno es obligatorio.")
+                return
+            try:
+                self.db.update_entorno(entorno_id, nombre, color, orden)
+                self._refresh_table()
+            except sqlite3.IntegrityError:
+                QtWidgets.QMessageBox.warning(self, "Error", "Ya existe un entorno con ese nombre.")
+
+    def _del_entorno(self):
+        sel = self.table.selectedItems()
+        if not sel:
+            QtWidgets.QMessageBox.information(self, "Eliminar", "Selecciona un entorno de la lista.")
+            return
+
+        entorno_id = sel[0].data(Qt.UserRole)
+        if self.db.is_entorno_in_use(entorno_id):
+            QtWidgets.QMessageBox.warning(self, "Error", "No se puede eliminar un entorno que está asignado a uno o más servicios.")
+            return
+
+        if QtWidgets.QMessageBox.question(self, "Confirmar", "¿Eliminar el entorno seleccionado?") == QtWidgets.QMessageBox.Yes:
+            self.db.delete_entorno(entorno_id)
+            self._refresh_table()
 
 
 # ==========================
@@ -438,17 +687,23 @@ class MainWindow(QtWidgets.QMainWindow):
         btn_add = QtWidgets.QPushButton("Añadir")
         btn_edit = QtWidgets.QPushButton("Modificar")
         btn_del = QtWidgets.QPushButton("Eliminar")
+        btn_clone = QtWidgets.QPushButton("Duplicar")
+        btn_entornos = QtWidgets.QPushButton("Entornos")
         btn_settings = QtWidgets.QPushButton("Configuración")
 
         btn_add.clicked.connect(self._add_service)
         btn_edit.clicked.connect(self._edit_selected)
         btn_del.clicked.connect(self._delete_selected)
+        btn_clone.clicked.connect(self._clone_selected)
+        btn_entornos.clicked.connect(self._open_entornos)
         btn_settings.clicked.connect(self._open_settings)
 
         top.addWidget(self.search_edit, 1)
         top.addWidget(btn_add)
         top.addWidget(btn_edit)
         top.addWidget(btn_del)
+        top.addWidget(btn_clone)
+        top.addWidget(btn_entornos)
         top.addWidget(btn_settings)
 
         # Table
@@ -560,6 +815,12 @@ class MainWindow(QtWidgets.QMainWindow):
             self.table.item(row, 4).setData(Qt.UserRole, database or "")
             # Keep service id in row for edit/delete
             self.table.item(row, 0).setData(Qt.UserRole + 1, svc.id)
+
+            if svc.entorno_color:
+                color = QtGui.QColor(svc.entorno_color)
+                for i in range(self.table.columnCount()):
+                    self.table.item(row, i).setBackground(color)
+
         self.count_label.setText(f"{self.table.rowCount()} servicios")
         self._apply_column_widths()
 
@@ -628,9 +889,10 @@ class MainWindow(QtWidgets.QMainWindow):
 
     # ------- CRUD -------
     def _add_service(self):
-        dlg = ServiceDialog(self, title="Añadir servicio")
+        entornos = self.db.list_entornos()
+        dlg = ServiceDialog(self, title="Añadir servicio", entornos=entornos)
         if dlg.exec() == QtWidgets.QDialog.Accepted:
-            name, user, pwd, srv, dbn = dlg.get_values()
+            name, user, pwd, srv, dbn, entorno_id = dlg.get_values()
             if not name:
                 QtWidgets.QMessageBox.warning(self, "Aviso", "El nombre del servicio es obligatorio")
                 return
@@ -641,11 +903,13 @@ class MainWindow(QtWidgets.QMainWindow):
                 password=self.crypto.encrypt(pwd) if pwd else None,
                 server=self.crypto.encrypt(srv) if srv else None,
                 database=self.crypto.encrypt(dbn) if dbn else None,
+                entorno_id=entorno_id,
+                entorno_color=None,  # Not needed for insert
             )
             self.db.insert_service(svc)
             self._refresh_table()
 
-    def _get_selected_service_id(self) -> int | None:
+    def _get_selected_service_id() -> int | None:
         sel = self.table.selectionModel().selectedRows()
         if not sel:
             return None
@@ -661,12 +925,14 @@ class MainWindow(QtWidgets.QMainWindow):
         svc = next((s for s in self._services_cache if s.id == sid), None)
         if not svc:
             return
+
         # Decrypt fields for editing
         user = self._safe_decrypt(svc.username) or ""
         pwd = self._safe_decrypt(svc.password) or ""
         srv = self._safe_decrypt(svc.server) or ""
         dbn = self._safe_decrypt(svc.database) or ""
 
+        entornos = self.db.list_entornos()
         dlg = ServiceDialog(
             self,
             title="Modificar servicio",
@@ -675,9 +941,11 @@ class MainWindow(QtWidgets.QMainWindow):
             password=pwd,
             server=srv,
             database=dbn,
+            entorno_id=svc.entorno_id,
+            entornos=entornos,
         )
         if dlg.exec() == QtWidgets.QDialog.Accepted:
-            name, user, pwd, srv, dbn = dlg.get_values()
+            name, user, pwd, srv, dbn, entorno_id = dlg.get_values()
             if not name:
                 QtWidgets.QMessageBox.warning(self, "Aviso", "El nombre del servicio es obligatorio")
                 return
@@ -686,6 +954,7 @@ class MainWindow(QtWidgets.QMainWindow):
             svc.password = self.crypto.encrypt(pwd) if pwd else None
             svc.server = self.crypto.encrypt(srv) if srv else None
             svc.database = self.crypto.encrypt(dbn) if dbn else None
+            svc.entorno_id = entorno_id
             self.db.update_service(svc)
             self._refresh_table()
 
@@ -703,11 +972,61 @@ class MainWindow(QtWidgets.QMainWindow):
             self.db.delete_service(sid)
             self._refresh_table()
 
+    def _clone_selected(self):
+        sid = self._get_selected_service_id()
+        if sid is None:
+            QtWidgets.QMessageBox.information(self, "Duplicar", "Selecciona una fila primero")
+            return
+        svc = next((s for s in self._services_cache if s.id == sid), None)
+        if not svc:
+            return
+
+        # Decrypt fields for editing
+        user = self._safe_decrypt(svc.username) or ""
+        pwd = self._safe_decrypt(svc.password) or ""
+        srv = self._safe_decrypt(svc.server) or ""
+        dbn = self._safe_decrypt(svc.database) or ""
+
+        entornos = self.db.list_entornos()
+        dlg = ServiceDialog(
+            self,
+            title="Duplicar servicio",
+            service_name=f"{svc.service_name} - Copia",
+            username=user,
+            password=pwd,
+            server=srv,
+            database=dbn,
+            entorno_id=svc.entorno_id,
+            entornos=entornos,
+        )
+        if dlg.exec() == QtWidgets.QDialog.Accepted:
+            name, user, pwd, srv, dbn, entorno_id = dlg.get_values()
+            if not name:
+                QtWidgets.QMessageBox.warning(self, "Aviso", "El nombre del servicio es obligatorio")
+                return
+            new_svc = Database.Service(
+                id=None,
+                service_name=name,
+                username=self.crypto.encrypt(user) if user else None,
+                password=self.crypto.encrypt(pwd) if pwd else None,
+                server=self.crypto.encrypt(srv) if srv else None,
+                database=self.crypto.encrypt(dbn) if dbn else None,
+                entorno_id=entorno_id,
+                entorno_color=None,  # Not needed for insert
+            )
+            self.db.insert_service(new_svc)
+            self._refresh_table()
+
     # ------- Settings -------
     def _open_settings(self):
         dlg = SettingsDialog(self.db, self)
         if dlg.exec() == QtWidgets.QDialog.Accepted:
             self._apply_initial_size()
+
+    def _open_entornos(self):
+        dlg = EntornosDialog(self.db, self)
+        dlg.exec()
+        self._refresh_table()
 
 
 # ==========================
