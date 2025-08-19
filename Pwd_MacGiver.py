@@ -863,6 +863,9 @@ class MainWindow(QtWidgets.QMainWindow):
         if item is None:
             return
         # Only copy non-empty
+        itemservicio = self.table.item(row, 0)
+        servicio = itemservicio.text() if itemservicio else ""
+
         data = item.data(Qt.UserRole)
         if data is None:
             # for service name (col 0), copy its text
@@ -871,15 +874,15 @@ class MainWindow(QtWidgets.QMainWindow):
             return
         QtGui.QGuiApplication.clipboard().setText(data)
         if col == 0:
-            msg = "Servicio copiado"
+            msg = f"Servicio {data} copiado"
         elif col == 1:
-            msg = "Usuario copiado"
+            msg = f"Usuario {data} copiado"
         elif col == 2:
-            msg = "Contraseña copiada"
+            msg = f"Contraseña {servicio} copiada"
         elif col == 3:
-            msg = "Servidor copiado"
+            msg = f"Servidor {data} copiado"
         else:
-            msg = "BBDD copiada"
+            msg = f"BBDD {data} copiada"
         self._show_banner(msg)
 
     def _show_banner(self, text: str):
