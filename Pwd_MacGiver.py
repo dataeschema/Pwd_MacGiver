@@ -912,7 +912,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.db.insert_service(svc)
             self._refresh_table()
 
-    def _get_selected_service_id() -> int | None:
+    def _get_selected_service_id(self) -> int | None:
         sel = self.table.selectionModel().selectedRows()
         if not sel:
             return None
