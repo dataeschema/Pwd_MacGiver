@@ -717,8 +717,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.table.horizontalHeader().sectionResized.connect(self._on_column_resized)
         self.table.setStyleSheet("""
             QTableView {
-                font-size: 10pt;
-                font-family: 'Press Start 2P';
+                font-size: 12pt;
+                font-family: 'Lucida Console';
             }
             """
         )
