@@ -201,12 +201,12 @@ class Database:
 
     def list_services(self) -> list[Service]:
         cur = self.conn.execute(
-            """
+            '''
             SELECT s.id, s.service_name, s.username, s.password, s.server, s.database, s.entorno_id, e.color as entorno_color
               FROM services s
               LEFT JOIN entornos e ON s.entorno_id = e.id
              ORDER BY e.orden, s.service_name
-            """
+            '''
         )
         return [
             Database.Service(
@@ -224,10 +224,10 @@ class Database:
 
     def insert_service(self, svc: Service) -> int:
         cur = self.conn.execute(
-            """
+            '''
             INSERT INTO services(service_name, username, password, server, database, entorno_id)
             VALUES (?, ?, ?, ?, ?, ?)
-            """,
+            ''',
             (
                 svc.service_name,
                 svc.username,
@@ -243,11 +243,11 @@ class Database:
     def update_service(self, svc: Service) -> None:
         assert svc.id is not None
         self.conn.execute(
-            """
+            '''
             UPDATE services
                SET service_name=?, username=?, password=?, server=?, database=?, entorno_id=?
              WHERE id=?
-            """,
+            ''',
             (
                 svc.service_name,
                 svc.username,
@@ -263,6 +263,54 @@ class Database:
     def delete_service(self, service_id: int) -> None:
         self.conn.execute("DELETE FROM services WHERE id=?", (service_id,))
         self.conn.commit()
+
+    def rekey_database(self, old_crypto: CryptoManager, new_master_password: str) -> CryptoManager:
+        services = self.list_services()
+        decrypted_services = []
+        for s in services:
+            decrypted_services.append(
+                {
+                    "id": s.id,
+                    "service_name": s.service_name,
+                    "username": old_crypto.decrypt(s.username),
+                    "password": old_crypto.decrypt(s.password),
+                    "server": old_crypto.decrypt(s.server),
+                    "database": old_crypto.decrypt(s.database),
+                    "entorno_id": s.entorno_id,
+                }
+            )
+
+        new_salt = os.urandom(16)
+        new_key = CryptoManager.derive_key(new_master_password, new_salt)
+        new_crypto = CryptoManager(new_key)
+
+        try:
+            self.conn.execute("BEGIN")
+            for s_dec in decrypted_services:
+                self.conn.execute(
+                    '''
+                    UPDATE services
+                       SET username=?, password=?, server=?, database=?
+                     WHERE id=?
+                    ''',
+                    (
+                        new_crypto.encrypt(s_dec["username"]),
+                        new_crypto.encrypt(s_dec["password"]),
+                        new_crypto.encrypt(s_dec["server"]),
+                        new_crypto.encrypt(s_dec["database"]),
+                        s_dec["id"],
+                    ),
+                )
+            # Update salt and verifier
+            new_verifier = QtCore.QCryptographicHash.hash(new_key, QtCore.QCryptographicHash.Sha256)
+            self.set_meta(META_SALT_KEY, new_salt)
+            self.set_meta(META_VERIFIER_KEY, new_verifier)
+            self.conn.commit()
+        except Exception:
+            self.conn.rollback()
+            raise
+
+        return new_crypto
 
 
 # ==========================
@@ -304,14 +352,14 @@ class LoginDialog(QtWidgets.QDialog):
 
     def _apply_style(self):
         self.setStyleSheet(
-            """
+            '''
             QDialog { background: #0f172a; color: #e2e8f0; }
             QLineEdit { background:#111827; border:1px solid #334155; border-radius:8px; padding:8px; }
             QPushButton { background:#1f2937; border:1px solid #334155; border-radius:8px; padding:8px 14px; }
             QPushButton:hover { background:#374151; }
             QPushButton:pressed { background:#111827; }
             QLabel { color:#e5e7eb; }
-            """
+            '''
         )
 
     def _ensure_salt_and_verifier(self, master: str) -> CryptoManager:
@@ -402,7 +450,7 @@ class ServiceDialog(QtWidgets.QDialog):
         layout.addWidget(btns)
 
         self.setStyleSheet(
-            """
+            '''
             QDialog { background:#0f172a; color:#e2e8f0; }
             QLineEdit, QComboBox { background:#111827; border:1px solid #334155; border-radius:8px; padding:8px; }
             QComboBox::drop-down { border: none; }
@@ -411,7 +459,7 @@ class ServiceDialog(QtWidgets.QDialog):
             QPushButton { background:#1f2937; border:1px solid #334155; border-radius:8px; padding:8px 14px; }
             QPushButton:hover { background:#374151; }
             QPushButton:pressed { background:#111827; }
-            """
+            '''
         )
 
     def get_values(self) -> tuple[str, str, str, str, str, int | None]:
@@ -454,13 +502,13 @@ class SettingsDialog(QtWidgets.QDialog):
         layout.addWidget(btns)
 
         self.setStyleSheet(
-            """
+            '''
             QDialog { background:#0f172a; color:#e2e8f0; }
             QSpinBox { background:#111827; border:1px solid #334155; border-radius:8px; padding:6px; }
             QPushButton { background:#1f2937; border:1px solid #334155; border-radius:8px; padding:8px 14px; }
             QPushButton:hover { background:#374151; }
             QPushButton:pressed { background:#111827; }
-            """
+            '''
         )
 
     def _save(self):
@@ -501,14 +549,14 @@ class EntornoEditDialog(QtWidgets.QDialog):
         layout.addLayout(form)
         layout.addWidget(btns)
         self.setStyleSheet(
-            """
+            '''
             QDialog { background:#0f172a; color:#e2e8f0; }
             QLineEdit { background:#111827; border:1px solid #334155; border-radius:8px; padding:8px; }
             QSpinBox { background:#111827; border:1px solid #334155; border-radius:8px; padding:6px; }
             QPushButton { background:#1f2937; border:1px solid #334155; border-radius:8px; padding:8px 14px; }
             QPushButton:hover { background:#374151; }
             QPushButton:pressed { background:#111827; }
-            """
+            '''
         )
 
     def _pick_color(self):
@@ -557,14 +605,14 @@ class EntornosDialog(QtWidgets.QDialog):
         layout.addWidget(self.table)
         layout.addLayout(btn_layout)
         self.setStyleSheet(
-            """
+            '''
             QDialog { background:#0f172a; color:#e2e8f0; }
             QTableView { background:#0f172a; alternate-background-color:#0c1222; gridline-color:#1f2937; }
             QHeaderView::section { background:#111827; color:#e5e7eb; border:0; padding:6px; }
             QPushButton { background:#1f2937; border:1px solid #334155; border-radius:8px; padding:8px 14px; }
             QPushButton:hover { background:#374151; }
             QPushButton:pressed { background:#111827; }
-            """
+            '''
         )
 
     def _refresh_table(self):
@@ -633,6 +681,50 @@ class EntornosDialog(QtWidgets.QDialog):
             self._refresh_table()
 
 
+class ChangePasswordDialog(QtWidgets.QDialog):
+    def __init__(self, db: Database, parent=None):
+        super().__init__(parent)
+        self.db = db
+        self.setWindowTitle("Cambiar Contraseña Maestra")
+        self.setModal(True)
+        self._build_ui()
+
+    def _build_ui(self):
+        layout = QtWidgets.QVBoxLayout(self)
+        form = QtWidgets.QFormLayout()
+
+        self.old_pass_edit = QtWidgets.QLineEdit()
+        self.old_pass_edit.setEchoMode(QtWidgets.QLineEdit.Password)
+        self.new_pass_edit = QtWidgets.QLineEdit()
+        self.new_pass_edit.setEchoMode(QtWidgets.QLineEdit.Password)
+        self.confirm_pass_edit = QtWidgets.QLineEdit()
+        self.confirm_pass_edit.setEchoMode(QtWidgets.QLineEdit.Password)
+
+        form.addRow("Contraseña actual:", self.old_pass_edit)
+        form.addRow("Nueva contraseña:", self.new_pass_edit)
+        form.addRow("Confirmar nueva:", self.confirm_pass_edit)
+
+        btns = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel)
+        btns.accepted.connect(self.accept)
+        btns.rejected.connect(self.reject)
+
+        layout.addLayout(form)
+        layout.addWidget(btns)
+
+        self.setStyleSheet(
+            '''
+            QDialog { background:#0f172a; color:#e2e8f0; }
+            QLineEdit { background:#111827; border:1px solid #334155; border-radius:8px; padding:8px; }
+            QPushButton { background:#1f2937; border:1px solid #334155; border-radius:8px; padding:8px 14px; }
+            QPushButton:hover { background:#374151; }
+            QPushButton:pressed { background:#111827; }
+            '''
+        )
+
+    def get_passwords(self) -> tuple[str, str, str]:
+        return self.old_pass_edit.text(), self.new_pass_edit.text(), self.confirm_pass_edit.text()
+
+
 # ==========================
 # Main Window
 # ==========================
@@ -690,6 +782,7 @@ class MainWindow(QtWidgets.QMainWindow):
         btn_clone = QtWidgets.QPushButton("Duplicar")
         btn_entornos = QtWidgets.QPushButton("Entornos")
         btn_settings = QtWidgets.QPushButton("Configuración")
+        btn_change_pass = QtWidgets.QPushButton("Cambiar Contraseña")
 
         btn_add.clicked.connect(self._add_service)
         btn_edit.clicked.connect(self._edit_selected)
@@ -697,6 +790,7 @@ class MainWindow(QtWidgets.QMainWindow):
         btn_clone.clicked.connect(self._clone_selected)
         btn_entornos.clicked.connect(self._open_entornos)
         btn_settings.clicked.connect(self._open_settings)
+        btn_change_pass.clicked.connect(self._change_master_password)
 
         top.addWidget(self.search_edit, 1)
         top.addWidget(btn_add)
@@ -705,6 +799,7 @@ class MainWindow(QtWidgets.QMainWindow):
         top.addWidget(btn_clone)
         top.addWidget(btn_entornos)
         top.addWidget(btn_settings)
+        top.addWidget(btn_change_pass)
 
         # Table
         self.table = QtWidgets.QTableWidget(0, 5)
@@ -715,12 +810,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self.table.setAlternatingRowColors(True)
         self.table.doubleClicked.connect(self._copy_cell)
         self.table.horizontalHeader().sectionResized.connect(self._on_column_resized)
-        self.table.setStyleSheet("""
+        self.table.setStyleSheet('''
             QTableView {
                 font-size: 12pt;
                 font-family: 'Lucida Console';
             }
-            """
+            '''
         )
         # Copy banner
         self.banner = QtWidgets.QLabel("")
@@ -743,7 +838,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # Style
         self.setStyleSheet(
-            """
+            '''
             QMainWindow { background: #0b1220; }
             QWidget { color: #e5e7eb; }
             QLineEdit { background:#111827; border:1px solid #334155; border-radius:10px; padding:8px 10px; }
@@ -752,7 +847,7 @@ class MainWindow(QtWidgets.QMainWindow):
             QPushButton:pressed { background:#111827; }
             QTableView { background:#0f172a; alternate-background-color:#0c1222; gridline-color:#1f2937; }
             QHeaderView::section { background:#111827; color:#e5e7eb; border:0; padding:6px; }
-            """
+            '''
         )
 
     def _apply_initial_size(self):
@@ -1031,13 +1126,48 @@ class MainWindow(QtWidgets.QMainWindow):
         dlg.exec()
         self._refresh_table()
 
+    def _change_master_password(self):
+        dlg = ChangePasswordDialog(self.db, self)
+        if dlg.exec() == QtWidgets.QDialog.Accepted:
+            old_pass, new_pass, confirm_pass = dlg.get_passwords()
+
+            if not all([old_pass, new_pass, confirm_pass]):
+                QtWidgets.QMessageBox.warning(self, "Error", "Todos los campos son obligatorios.")
+                return
+
+            if new_pass != confirm_pass:
+                QtWidgets.QMessageBox.warning(self, "Error", "Las nuevas contraseñas no coinciden.")
+                return
+
+            # Verify old password
+            try:
+                salt = self.db.get_meta(META_SALT_KEY)
+                key = CryptoManager.derive_key(old_pass, salt)
+                verifier_stored = self.db.get_meta(META_VERIFIER_KEY)
+                verifier_now = QtCore.QCryptographicHash.hash(key, QtCore.QCryptographicHash.Sha256)
+                if verifier_stored != verifier_now:
+                    QtWidgets.QMessageBox.critical(self, "Error", "La contraseña maestra actual es incorrecta.")
+                    return
+            except Exception:
+                QtWidgets.QMessageBox.critical(self, "Error", "Error al verificar la contraseña anterior.")
+                return
+
+            # Rekey the database
+            try:
+                new_crypto = self.db.rekey_database(self.crypto, new_pass)
+                self.crypto = new_crypto
+                self._refresh_table()
+                QtWidgets.QMessageBox.information(self, "Éxito", "La contraseña maestra se ha cambiado correctamente.")
+            except Exception as e:
+                QtWidgets.QMessageBox.critical(self, "Error", f"No se pudo cambiar la contraseña: {e}")
+
 
 # ==========================
 # Utility: locate DB file in working directory (simple) or AppData
 # ==========================
 
 def get_db_path() -> str:
-    """Devuelve la ruta del archivo vault.db junto al ejecutable o script."""
+    '''Devuelve la ruta del archivo vault.db junto al ejecutable o script.'''
     if getattr(sys, 'frozen', False):  # ejecutándose como .exe con PyInstaller
         base_path = os.path.dirname(sys.executable)
     else:
