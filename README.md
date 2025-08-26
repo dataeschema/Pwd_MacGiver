@@ -54,27 +54,43 @@ La ventana principal consta de:
 - Una **tabla central** que lista todos los servicios. Las contraseñas se muestran ofuscadas con puntos (`•••••`) por seguridad.
 - Un **pie de página** que muestra el número total de servicios almacenados.
 
-## 5. Dependencias
+## 5. Dependencias y Entorno Virtual
 
-Para ejecutar la aplicación desde el código fuente, necesitas instalar las siguientes bibliotecas de Python:
+Para ejecutar la aplicación desde el código fuente, se recomienda crear un entorno virtual para aislar las dependencias del proyecto. Este proyecto está configurado para usar `uv`, una herramienta de gestión de paquetes y entornos de Python extremadamente rápida.
 
-```bash
-pip install PySide6 cryptography
-```
+### Pasos para Preparar el Entorno con `uv`
+
+1.  **Instalar `uv`:**
+    Si aún no tienes `uv`, instálalo siguiendo las [instrucciones oficiales](https://github.com/astral-sh/uv).
+
+2.  **Crear el Entorno Virtual y Sincronizar Dependencias:**
+    Ejecuta el siguiente comando en la raíz del proyecto. `uv` creará un entorno virtual (`.venv`) y instalará las dependencias especificadas en `pyproject.toml` de forma automática.
+
+    ```bash
+    uv sync
+    ```
+
+3.  **Activar el Entorno Virtual:**
+    - En **Windows (CMD)**: `.venv\Scripts\activate`
+    - En **Windows (PowerShell)**: `.venv\Scripts\Activate.ps1`
+    - En **macOS/Linux**: `source .venv/bin/activate`
+
+Una vez activado, tendrás acceso a las bibliotecas `PySide6` y `cryptography` necesarias para ejecutar la aplicación.
 
 ## 6. Cómo Usar la Aplicación
 
-1.  **Ejecutar el script:** `python Pwd_MacGiver.py`.
-2.  **Crear/Introducir Contraseña Maestra:** Sigue las instrucciones del diálogo inicial.
-3.  **Añadir un Servicio:**
+1.  **Preparar el entorno:** Sigue los pasos de la sección "Dependencias y Entorno Virtual".
+2.  **Ejecutar el script:** `python Pwd_MacGiver.py`.
+3.  **Crear/Introducir Contraseña Maestra:** Sigue las instrucciones del diálogo inicial.
+4.  **Añadir un Servicio:**
     - Haz clic en el botón "Añadir".
     - Rellena los campos en el nuevo diálogo y haz clic en "Ok".
-4.  **Copiar un dato:**
+5.  **Copiar un dato:**
     - Haz doble clic en la celda deseada (ej: la contraseña del servicio "Gmail").
     - El dato se copiará al portapapeles y un banner verde lo confirmará.
-5.  **Buscar un Servicio:**
+6.  **Buscar un Servicio:**
     - Escribe en la barra de búsqueda. La tabla se filtrará automáticamente.
-6.  **Modificar o Eliminar:**
+7.  **Modificar o Eliminar:**
     - Selecciona la fila del servicio que deseas cambiar.
     - Haz clic en "Modificar" o "Eliminar".
 
