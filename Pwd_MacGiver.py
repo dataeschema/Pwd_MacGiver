@@ -17,6 +17,7 @@ import os
 import sqlite3
 import sys
 import typing as t
+import json
 from dataclasses import dataclass
 
 from PySide6 import QtCore, QtGui, QtWidgets
@@ -119,6 +120,13 @@ class Database:
 
     def _ensure_schema(self) -> None:
         self.conn.executescript(SCHEMA)
+
+        # --- Schema migration for entorno_id ---
+        cur = self.conn.execute("PRAGMA table_info(services)")
+        columns = [row["name"] for row in cur.fetchall()]
+        if "entorno_id" not in columns:
+            self.conn.execute("ALTER TABLE services ADD COLUMN entorno_id INTEGER REFERENCES entornos(id) ON DELETE SET NULL")
+
         self.conn.commit()
 
     # --- meta helpers ---
@@ -422,6 +430,8 @@ class ServiceDialog(QtWidgets.QDialog):
         self.db_edit = QtWidgets.QLineEdit(database)
 
         self.entorno_combo = QtWidgets.QComboBox()
+        self.entorno_combo.setSizeAdjustPolicy(QtWidgets.QComboBox.AdjustToContents)
+        self.entorno_combo.setMinimumWidth(100)
         self.entorno_combo.addItem("", None)  # No environment
         for entorno in entornos:
             self.entorno_combo.addItem(entorno.nombre, entorno.id)
@@ -776,18 +786,22 @@ class MainWindow(QtWidgets.QMainWindow):
         self.search_edit = QtWidgets.QLineEdit()
         self.search_edit.setPlaceholderText("Buscar servicio...")
         self.search_edit.textChanged.connect(self._filter_table)
-        btn_add = QtWidgets.QPushButton("Añadir")
-        btn_edit = QtWidgets.QPushButton("Modificar")
-        btn_del = QtWidgets.QPushButton("Eliminar")
-        btn_clone = QtWidgets.QPushButton("Duplicar")
-        btn_entornos = QtWidgets.QPushButton("Entornos")
-        btn_settings = QtWidgets.QPushButton("Configuración")
-        btn_change_pass = QtWidgets.QPushButton("Cambiar Contraseña")
+        btn_add = QtWidgets.QPushButton("➕ Añadir")
+        btn_edit = QtWidgets.QPushButton("✏️ Modificar")
+        btn_del = QtWidgets.QPushButton("🗑️ Eliminar")
+        btn_clone = QtWidgets.QPushButton("📋 Duplicar")
+        btn_import = QtWidgets.QPushButton("📥 Importar")
+        btn_export = QtWidgets.QPushButton("📤 Exportar")
+        btn_entornos = QtWidgets.QPushButton("🌐 Entornos")
+        btn_settings = QtWidgets.QPushButton("⚙️ Configuración")
+        btn_change_pass = QtWidgets.QPushButton("🔑 Cambiar Contraseña")
 
         btn_add.clicked.connect(self._add_service)
         btn_edit.clicked.connect(self._edit_selected)
         btn_del.clicked.connect(self._delete_selected)
         btn_clone.clicked.connect(self._clone_selected)
+        btn_import.clicked.connect(self._import_services)
+        btn_export.clicked.connect(self._export_services)
         btn_entornos.clicked.connect(self._open_entornos)
         btn_settings.clicked.connect(self._open_settings)
         btn_change_pass.clicked.connect(self._change_master_password)
@@ -797,6 +811,8 @@ class MainWindow(QtWidgets.QMainWindow):
         top.addWidget(btn_edit)
         top.addWidget(btn_del)
         top.addWidget(btn_clone)
+        top.addWidget(btn_import)
+        top.addWidget(btn_export)
         top.addWidget(btn_entornos)
         top.addWidget(btn_settings)
         top.addWidget(btn_change_pass)
@@ -1115,6 +1131,181 @@ class MainWindow(QtWidgets.QMainWindow):
             self.db.insert_service(new_svc)
             self._refresh_table()
 
+    def _import_services(self):
+        # Get file to import
+        filepath, _ = QtWidgets.QFileDialog.getOpenFileName(
+            self, "Seleccionar archivo para importar", "", "Archivos cifrados (*.json.enc);;Todos los archivos (*)"
+        )
+        if not filepath:
+            return
+
+        # Get password for decryption
+        password, ok = QtWidgets.QInputDialog.getText(
+            self, "Contraseña de importación", "Introduce la contraseña del archivo a importar:",
+            echo=QtWidgets.QLineEdit.Password
+        )
+        if not ok or not password:
+            QtWidgets.QMessageBox.warning(self, "Aviso", "La importación ha sido cancelada. Se requiere una contraseña.")
+            return
+
+        try:
+            # Read and decrypt file
+            with open(filepath, "rb") as f:
+                salt = f.read(16)
+                encrypted_data = f.read()
+
+            file_key = CryptoManager.derive_key(password, salt)
+            file_crypto = CryptoManager(file_key)
+            
+            try:
+                decrypted_json = file_crypto.decrypt(encrypted_data)
+                if decrypted_json is None:
+                    raise InvalidToken
+                import_data = json.loads(decrypted_json)
+            except InvalidToken:
+                QtWidgets.QMessageBox.critical(self, "Error", "Contraseña incorrecta o archivo corrupto.")
+                return
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                QtWidgets.QMessageBox.critical(self, "Error", "El archivo no tiene un formato JSON válido o está corrupto.")
+                return
+
+            # --- Process data ---
+            self.db.conn.execute("BEGIN")
+
+            # 1. Process Entornos
+            existing_entornos = {e.nombre: e for e in self.db.list_entornos()}
+            if "entornos" in import_data:
+                for entorno_data in import_data["entornos"]:
+                    if entorno_data.get("nombre") and entorno_data["nombre"] not in existing_entornos:
+                        self.db.insert_entorno(
+                            nombre=entorno_data["nombre"],
+                            color=entorno_data.get("color", "#FFFFFF"),
+                            orden=entorno_data.get("orden", 0)
+                        )
+            
+            # Refresh entornos list to get new IDs
+            all_entornos = {e.nombre: e for e in self.db.list_entornos()}
+            entorno_name_to_id = {name: e.id for name, e in all_entornos.items()}
+
+            # 2. Process Services (with duplicate check)
+            services_added_count = 0
+            services_skipped_count = 0
+            existing_services_set = {(s.service_name, s.entorno_id) for s in self.db.list_services()}
+
+            if "services" in import_data:
+                for svc_data in import_data["services"]:
+                    service_name = svc_data.get("service_name")
+                    entorno_id = entorno_name_to_id.get(svc_data.get("entorno_nombre"))
+
+                    if not service_name:
+                        services_skipped_count += 1
+                        continue
+
+                    if (service_name, entorno_id) in existing_services_set:
+                        services_skipped_count += 1
+                        continue
+                    
+                    user = svc_data.get("username")
+                    pwd = svc_data.get("password")
+                    srv = svc_data.get("server")
+                    dbn = svc_data.get("database")
+
+                    new_svc = Database.Service(
+                        id=None,
+                        service_name=service_name,
+                        username=self.crypto.encrypt(user) if user else None,
+                        password=self.crypto.encrypt(pwd) if pwd else None,
+                        server=self.crypto.encrypt(srv) if srv else None,
+                        database=self.crypto.encrypt(dbn) if dbn else None,
+                        entorno_id=entorno_id,
+                        entorno_color=None,
+                    )
+                    self.db.insert_service(new_svc)
+                    services_added_count += 1
+            
+            self.db.conn.commit()
+            
+            summary_message = f"{services_added_count} servicio(s) importado(s) correctamente."
+            if services_skipped_count > 0:
+                summary_message += f"\n{services_skipped_count} servicio(s) duplicado(s) fueron omitido(s)."
+
+            QtWidgets.QMessageBox.information(self, "Éxito", summary_message)
+            self._refresh_table()
+
+        except Exception as e:
+            if self.db.conn:
+                self.db.conn.rollback()
+            QtWidgets.QMessageBox.critical(self, "Error", f"No se pudo importar el archivo: {e}")
+
+    def _export_services(self):
+        sel_rows = self.table.selectionModel().selectedRows()
+        if not sel_rows:
+            QtWidgets.QMessageBox.information(self, "Exportar", "Selecciona al menos un servicio para exportar.")
+            return
+
+        sids = {self.table.item(idx.row(), 0).data(Qt.UserRole + 1) for idx in sel_rows}
+        services_to_export = [s for s in self._services_cache if s.id in sids]
+
+        if not services_to_export:
+            return
+
+        # Get password for encryption
+        password, ok = QtWidgets.QInputDialog.getText(
+            self, "Contraseña de exportación", "Crea una contraseña para cifrar el archivo:",
+            echo= QtWidgets.QLineEdit.Password
+        )
+        if not ok or not password:
+            QtWidgets.QMessageBox.warning(self, "Aviso", "La exportación ha sido cancelada. Se requiere una contraseña.")
+            return
+
+        # Get destination file
+        default_filename = "pwd-macgiver-export.json.enc"
+        filepath, _ = QtWidgets.QFileDialog.getSaveFileName(
+            self, "Guardar exportación", default_filename, "Archivos cifrados (*.json.enc);;Todos los archivos (*)"
+        )
+        if not filepath:
+            return
+
+        # Gather data
+        entorno_ids = {s.entorno_id for s in services_to_export if s.entorno_id is not None}
+        all_entornos = self.db.list_entornos()
+        entornos_to_export = [e for e in all_entornos if e.id in entorno_ids]
+
+        export_data = {
+            "entornos": [
+                {"nombre": e.nombre, "color": e.color, "orden": e.orden}
+                for e in entornos_to_export
+            ],
+            "services": [
+                {
+                    "service_name": s.service_name,
+                    "username": self._safe_decrypt(s.username),
+                    "password": self._safe_decrypt(s.password),
+                    "server": self._safe_decrypt(s.server),
+                    "database": self._safe_decrypt(s.database),
+                    "entorno_nombre": next((e.nombre for e in all_entornos if e.id == s.entorno_id), None),
+                }
+                for s in services_to_export
+            ]
+        }
+
+        # Encrypt and write
+        try:
+            salt = os.urandom(16)
+            key = CryptoManager.derive_key(password, salt)
+            crypto = CryptoManager(key)
+            json_data = json.dumps(export_data, indent=2).encode("utf-8")
+            encrypted_data = crypto.encrypt(json_data.decode("utf-8"))
+
+            with open(filepath, "wb") as f:
+                f.write(salt)
+                f.write(encrypted_data)
+
+            QtWidgets.QMessageBox.information(self, "Éxito", f"{len(services_to_export)} servicio(s) exportado(s) con éxito a:\n{filepath}")
+
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(self, "Error", f"No se pudo exportar el archivo: {e}")
+
     # ------- Settings -------
     def _open_settings(self):
         dlg = SettingsDialog(self.db, self)
@@ -1182,9 +1373,7 @@ def get_db_path() -> str:
 def main():
     app = QtWidgets.QApplication(sys.argv)
 
-    # Set high-DPI attributes for sharper UI on Windows
-    QtCore.QCoreApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
-    QtCore.QCoreApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
+    
 
     db = Database(get_db_path())
 

@@ -80,7 +80,7 @@ Una vez activado, tendrás acceso a las bibliotecas `PySide6` y `cryptography` n
 ## 6. Cómo Usar la Aplicación
 
 1.  **Preparar el entorno:** Sigue los pasos de la sección "Dependencias y Entorno Virtual".
-2.  **Ejecutar el script:** `python Pwd_MacGiver.py`.
+2.  **Ejecutar el script:** `python Pwd_MacGiver.py`, o mediante uv `uv run Pwd_MacGiver.py`.
 3.  **Crear/Introducir Contraseña Maestra:** Sigue las instrucciones del diálogo inicial.
 4.  **Añadir un Servicio:**
     - Haz clic en el botón "Añadir".
