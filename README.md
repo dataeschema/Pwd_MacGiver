@@ -1,135 +1,151 @@
-# Pwd MacGiver - Documentación
+# Pwd MacGiver - Documentation
 
-## 1. Descripción General
+## 1. General Description
 
-**Pwd MacGiver** es una aplicación de escritorio segura para gestionar credenciales de servicios. A diferencia de un simple generador de contraseñas, actúa como una bóveda o almacén digital donde el usuario puede guardar, modificar y consultar información sensible como nombres de usuario, contraseñas, servidores y bases de datos.
+**Pwd MacGiver** is a secure desktop application for managing service credentials. Unlike a simple password generator, it acts as a digital vault where the user can save, modify, and consult sensitive information such as usernames, passwords, servers, and databases.
 
-La aplicación está protegida por una **contraseña maestra**, que se utiliza para cifrar toda la información almacenada, garantizando que solo el usuario con acceso a dicha contraseña pueda ver los datos.
+The application is protected by a **master password**, which is used to encrypt all stored information, ensuring that only the user with access to this password can view the data.
 
-## 2. Características Principales
+## 2. Key Features
 
-- **Bóveda Segura:** Almacena todas las credenciales en un único archivo de base de datos (`vault.db`).
-- **Cifrado Fuerte:** Utiliza criptografía robusta para proteger los datos.
-  - La clave de cifrado se deriva de la contraseña maestra usando **PBKDF2** con 200,000 iteraciones y SHA-256.
-  - Los datos sensibles se cifran usando el algoritmo simétrico **Fernet** (AES de 128 bits en modo CBC).
-- **Contraseña Maestra:** En el primer uso, la aplicación solicita la creación de una contraseña maestra. En usos posteriores, es imprescindible para acceder.
-- **Interfaz Gráfica Moderna:** Desarrollada con **PySide6 (Qt)**, con un diseño oscuro y funcional.
-- **Gestión de Credenciales (CRUD):**
-  - **Añadir:** Permite agregar nuevas credenciales de servicios.
-  - **Modificar:** Permite editar un servicio existente.
-  - **Eliminar:** Permite borrar un servicio de forma segura.
-- **Funcionalidades Útiles:**
-  - **Buscador integrado:** Filtra los servicios en tiempo real.
-  - **Copiado al portapapeles:** Haciendo doble clic en cualquier celda, su contenido se copia al portapapeles.
-  - **Notificaciones visuales:** Un banner temporal confirma que un dato ha sido copiado.
-- **Configuración Personalizable:**
-  - Permite ajustar y guardar el tamaño inicial de la ventana.
-  - El ancho de las columnas de la tabla también se guarda y se restaura en cada sesión.
+- **Secure Vault:** Stores all credentials in a single database file (`vault.db`).
+- **Strong Encryption:** Uses robust cryptography to protect the data.
+  - The encryption key is derived from the master password using **PBKDF2** with 200,000 iterations and SHA-256.
+  - Sensitive data is encrypted using the **Fernet** symmetric algorithm (128-bit AES in CBC mode).
+- **Master Password:** On first use, the application prompts for the creation of a master password. In subsequent uses, it is required for access.
+- **Modern GUI:** Developed with **PySide6 (Qt)**, featuring a dark and functional design.
+- **Credential Management (CRUD):**
+  - **Add:** Allows adding new service credentials.
+  - **Modify:** Allows editing an existing service.
+  - **Delete:** Allows securely deleting a service.
+- **Useful Functionalities:**
+  - **Integrated Search:** Filters services in real-time.
+  - **Copy to Clipboard:** Double-clicking any cell copies its content to the clipboard.
+  - **Visual Notifications:** A temporary banner confirms that data has been copied.
+- **Customizable Settings:**
+  - Allows adjusting and saving the initial window size.
+  - The width of the table columns is also saved and restored in each session.
 
-## 3. Tecnologías Utilizadas
+## 3. Technologies Used
 
-- **Lenguaje:** Python 3
-- **Interfaz Gráfica:** PySide6 (bindings oficiales de Qt para Python)
-- **Base de Datos:** SQLite 3
-- **Criptografía:** `cryptography` (una de las bibliotecas criptográficas más reconocidas de Python).
+- **Language:** Python 3
+- **GUI:** PySide6 (official Qt bindings for Python)
+- **Database:** SQLite 3
+- **Cryptography:** `cryptography` (one of Python's most recognized cryptographic libraries).
 
-## 4. Funcionamiento Detallado
+## 4. Detailed Functioning
 
-### Arranque y Autenticación
+### Startup and Authentication
 
-1.  **Primer Arranque:** Si no existe una base de datos o no se ha configurado una contraseña maestra, la aplicación mostrará un diálogo para crear una. Se genera una "sal" criptográfica (`salt`) que se guarda en la base de datos. Esta "sal" se usará junto a la contraseña para derivar la clave de cifrado.
-2.  **Arranques Posteriores:** La aplicación solicitará la contraseña maestra. El sistema la utiliza, junto con la "sal" almacenada, para derivar una clave. Si la clave resultante es correcta (verificándola contra un hash guardado), se desbloquea la bóveda. Si no, se deniega el acceso.
+1.  **First Run:** If a database does not exist or a master password has not been set, the application will display a dialog to create one. A cryptographic "salt" is generated and saved in the database. This "salt" will be used with the password to derive the encryption key.
+2.  **Subsequent Runs:** The application will request the master password. The system uses it, along with the stored "salt", to derive a key. If the resulting key is correct (verified against a saved hash), the vault is unlocked. Otherwise, access is denied.
 
-### Estructura de la Base de Datos (`vault.db`)
+### Database Structure (`vault.db`)
 
-La base de datos SQLite contiene tres tablas principales:
-- `meta`: Almacena metadatos críticos como la "sal" criptográfica y el hash verificador de la clave.
-- `config`: Guarda configuraciones de la aplicación, como el tamaño de la ventana.
-- `services`: Almacena las credenciales. Campos como `username`, `password`, `server` y `database` se guardan en formato `BLOB` (binario) porque contienen los datos cifrados.
+The SQLite database contains three main tables:
+- `meta`: Stores critical metadata such as the cryptographic "salt" and the key verifier hash.
+- `config`: Saves application settings, such as window size.
+- `services`: Stores the credentials. Fields like `username`, `password`, `server`, and `database` are saved in `BLOB` (binary) format because they contain the encrypted data.
 
-### Interfaz Principal
+### Main Interface
 
-La ventana principal consta de:
-- Una **barra de herramientas superior** con un campo de búsqueda y los botones de acción (Añadir, Modificar, Eliminar, Configuración).
-- Una **tabla central** que lista todos los servicios. Las contraseñas se muestran ofuscadas con puntos (`•••••`) por seguridad.
-- Un **pie de página** que muestra el número total de servicios almacenados.
+The main window consists of:
+- A **top toolbar** with a search field and action buttons (Add, Modify, Delete, Settings).
+- A **central table** listing all services. Passwords are obfuscated with dots (`•••••`) for security.
+- A **footer** that displays the total number of stored services.
 
-## 5. Dependencias y Entorno Virtual
+## 5. Dependencies and Virtual Environment
 
-Para ejecutar la aplicación desde el código fuente, se recomienda crear un entorno virtual para aislar las dependencias del proyecto. Este proyecto está configurado para usar `uv`, una herramienta de gestión de paquetes y entornos de Python extremadamente rápida.
+To run the application from the source code, it is recommended to create a virtual environment to isolate the project dependencies. This project is configured to use `uv`, an extremely fast Python package and environment management tool.
 
-### Pasos para Preparar el Entorno con `uv`
+### Steps to Prepare the Environment with `uv`
 
-1.  **Instalar `uv`:**
-    Si aún no tienes `uv`, instálalo siguiendo las [instrucciones oficiales](https://github.com/astral-sh/uv).
+1.  **Install `uv`:**
+    If you don't have `uv` yet, install it by following the [official instructions](https://github.com/astral-sh/uv).
 
-2.  **Crear el Entorno Virtual y Sincronizar Dependencias:**
-    Ejecuta el siguiente comando en la raíz del proyecto. `uv` creará un entorno virtual (`.venv`) y instalará las dependencias especificadas en `pyproject.toml` de forma automática.
+2.  **Create the Virtual Environment and Sync Dependencies:**
+    Run the following command in the project root. `uv` will create a virtual environment (`.venv`) and automatically install the dependencies specified in `pyproject.toml`.
 
     ```bash
     uv sync
     ```
 
-3.  **Activar el Entorno Virtual:**
-    - En **Windows (CMD)**: `.venv\Scripts\activate`
-    - En **Windows (PowerShell)**: `.venv\Scripts\Activate.ps1`
-    - En **macOS/Linux**: `source .venv/bin/activate`
+3.  **Activate the Virtual Environment:**
+    - On **Windows (CMD)**: `.venv\Scripts\activate`
+    - On **Windows (PowerShell)**: `.venv\Scripts\Activate.ps1`
+    - On **macOS/Linux**: `source .venv/bin/activate`
 
-Una vez activado, tendrás acceso a las bibliotecas `PySide6` y `cryptography` necesarias para ejecutar la aplicación.
+Once activated, you will have access to the `PySide6` and `cryptography` libraries needed to run the application.
 
-## 6. Cómo Usar la Aplicación
+## 6. How to Use the Application
 
-1.  **Preparar el entorno:** Sigue los pasos de la sección "Dependencias y Entorno Virtual".
-2.  **Ejecutar el script:** `python Pwd_MacGiver.py`, o mediante uv `uv run Pwd_MacGiver.py`.
-3.  **Crear/Introducir Contraseña Maestra:** Sigue las instrucciones del diálogo inicial.
-4.  **Añadir un Servicio:**
-    - Haz clic en el botón "Añadir".
-    - Rellena los campos en el nuevo diálogo y haz clic en "Ok".
-5.  **Copiar un dato:**
-    - Haz doble clic en la celda deseada (ej: la contraseña del servicio "Gmail").
-    - El dato se copiará al portapapeles y un banner verde lo confirmará.
-6.  **Buscar un Servicio:**
-    - Escribe en la barra de búsqueda. La tabla se filtrará automáticamente.
-7.  **Modificar o Eliminar:**
-    - Selecciona la fila del servicio que deseas cambiar.
-    - Haz clic en "Modificar" o "Eliminar".
+1.  **Prepare the environment:** Follow the steps in the "Dependencies and Virtual Environment" section.
+2.  **Run the script:** `python Pwd_MacGiver.py`, or via uv `uv run Pwd_MacGiver.py`.
+3.  **Create/Enter Master Password:** Follow the instructions in the initial dialog.
+4.  **Add a Service:**
+    - Click the "Add" button.
+    - Fill in the fields in the new dialog and click "Ok".
+5.  **Copy Data:**
+    - Double-click the desired cell (e.g., the password for the "Gmail" service).
+    - The data will be copied to the clipboard and a green banner will confirm it.
+6.  **Search for a Service:**
+    - Type in the search bar. The table will filter automatically.
+7.  **Modify or Delete:**
+    - Select the row of the service you want to change.
+    - Click "Modify" or "Delete".
 
-## 7. Empaquetado de la Aplicación
+## 7. Application Packaging
 
-Para distribuir la aplicación, puedes generar un ejecutable autocontenido usando `PyInstaller`. El icono de la ventana (`icon.png`) se carga directamente desde el código y debe ser incluido como un recurso dentro del paquete.
+To distribute the application, you can generate a self-contained executable using `PyInstaller`. The window icon (`icon.png`) is loaded directly from the code and must be included as a resource within the package.
 
-### Empaquetado para Windows
+### Packaging for Windows
 
-Para crear un ejecutable `.exe` para Windows:
+To create a `.exe` executable for Windows:
 
 ```bash
 pyinstaller Pwd_MacGiver.py --name Pwd_MacGiver --onefile --noconsole --icon .\app.ico --add-data "icon.png;."
 ```
-- **`--add-data "icon.png;."`**: Este comando es crucial. Incluye el fichero `icon.png` en la raíz del paquete para que la aplicación pueda encontrarlo y mostrarlo como el icono de la ventana. El separador para `add-data` en Windows es `;`.
+- **`--add-data "icon.png;."`**: This command is crucial. It includes the `icon.png` file in the root of the package so the application can find it and display it as the window icon. The separator for `add-data` on Windows is `;`.
 
-### Empaquetado para macOS (Apple Silicon)
+### Packaging for macOS (Apple Silicon)
 
-El proceso es similar para macOS, pero requiere un icono en formato `.icns`.
+The process is similar for macOS, but requires an icon in `.icns` format.
 
-#### 1. Crear el Fichero de Icono (`.icns`)
+#### 1. Create the Icon File (`.icns`)
 
-Usa la utilidad `iconutil` en un Mac para convertir tu `icon.png`:
+Use the `iconutil` utility on a Mac to convert your `icon.png`:
 ```bash
-# 1. Crear el directorio del iconset
+# 1. Create the iconset directory
 mkdir mi_icono.iconset
-# 2. Generar las diferentes resoluciones
+# 2. Generate the different resolutions
 sips -z 16 16 icon.png --out mi_icono.iconset/icon_16x16.png
 sips -z 32 32 icon.png --out mi_icono.iconset/icon_32x32.png
 sips -z 128 128 icon.png --out mi_icono.iconset/icon_128x128.png
 sips -z 256 256 icon.png --out mi_icono.iconset/icon_256x256.png
-# 3. Convertir a .icns
+# 3. Convert to .icns
 iconutil -c icns mi_icono.iconset
 ```
 
-#### 2. Generar la Aplicación (`.app`)
+#### 2. Generate the Application (`.app`)
 
-Ejecuta `PyInstaller` con el siguiente comando:
+Run `PyInstaller` with the following command:
 ```bash
 pyinstaller Pwd_MacGiver.py --name Pwd_MacGiver --windowed --icon mi_icono.icns --add-data "icon.png:."
 ```
-- **`--add-data "icon.png:."`**: Al igual que en Windows, este comando incluye el `icon.png` en el paquete de la aplicación. El separador en macOS es `:`.
+- **`--add-data "icon.png:."`**: Like on Windows, this command includes `icon.png` in the application package. The separator on macOS is `:`.
+
+## 8. Security Analysis and Proposed Enhancements
+
+The application follows good security practices, but for an enterprise environment, the following enhancements can be applied:
+
+### High-Priority Enhancements
+1.  **Automatic Clipboard Clearing:** Clear sensitive data from the clipboard after 30-60 seconds to minimize exposure.
+2.  **Increase PBKDF2 Iterations:** Raise the number of iterations (currently 200,000) to a more robust value (e.g., 600,000) to strengthen key derivation against brute-force attacks.
+3.  **Auto-Lock on Idle:** Lock the application after a period of inactivity, requiring the master password to unlock it again.
+
+### Medium-Priority Enhancements
+4.  **Secure In-Memory Secret Management:** Decrypt credentials only at the moment of use (Just-In-Time) and clear them from memory immediately afterward.
+5.  **Master Password Strength Meter:** Add a visual indicator when creating/changing the master password to guide the user.
+
+### Advanced Enhancements
+6.  **Database Integrity Verification (HMAC):** Protect the database file against external tampering using a cryptographic signature.
